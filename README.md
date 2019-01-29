@@ -25,6 +25,7 @@ python inaturalist.py ./data -a resnet50 --workers 32 -b 192
 
 ## Todo:
 
-- [ ] Write a proper Readme. 
+- [ ] Write a proper Readme.
+- [ ] Add dependencies.
 - [ ] Read from `yaml` config files the standardized benchmarks.
 - [ ] Start adding additional models.
