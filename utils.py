@@ -23,10 +23,30 @@ class AverageMetric:
         self.avg = self.sum / self.count
 
 
+class FPSMetric:
+    def __init__(self):
+        self.reset()
+
+    def update(self, units, time, n=1):
+        self.time += time
+        self.sum += units
+        self.count += n
+        self.val = units / time
+        self.avg = self.sum / self.time
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.time = 0
+        self.count = 0
+
+
 class Logger:
     def __init__(self, label="train", path=None):
         self.label = label
         self.metrics = {}
+        self.history = {}
 
         self.path = path
         if path is None:
@@ -43,6 +63,7 @@ class Logger:
             if metric_name in self.metrics:
                 print(f"LOG: warning, metric {metric_name} already registered!")
             self.metrics[metric_name] = metric
+            self.history[metric_name] = []
 
     def update(self, **kwargs):
         for k, v in kwargs.items():
@@ -54,31 +75,25 @@ class Logger:
             else:
                 self.metrics[k].update(v)
 
+            # also update history
+            self.history[k].append(
+                {
+                    "step_idx": self.metrics[k].count,
+                    "value": self.metrics[k].val,
+                }
+            )
+
     def reset(self):
         for _, metric in self.metrics.items():
             metric.reset()
-        
+
     def log(self, cb=None):
         if cb:
             cb(self.metrics)
-        
-        self._save()
 
-    def _save(self):
-        filename = '%s.pkl' % self.label.replace(" ", "_").lower()
+    def save(self):
+        filename = "%s.pkl" % self.label.replace(" ", "_").lower()
         path = os.path.join(self.path, filename)
 
-        try:
-            with open(path, 'rb') as f:
-                history = pickle.load(f)
-        except FileNotFoundError:
-            history = {k: [] for k in self.metrics.keys()}
-        
-        for metric_name, metric in self.metrics.items():
-            history[metric_name].append({
-                "step_idx": metric.count,
-                "value": metric.val
-            })
-        
         with open(path, "wb") as f:
-            pickle.dump(history, f)
+            pickle.dump(self.history, f)

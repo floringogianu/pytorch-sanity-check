@@ -22,7 +22,7 @@ import torch.utils.data.distributed
 import torchvision.models as models
 
 from datasets import iNaturalist
-from utils import AverageMetric, Logger
+from utils import FPSMetric, AverageMetric, Logger
 
 
 model_names = sorted(
@@ -102,6 +102,13 @@ parser.add_argument(
     "-p",
     "--print-freq",
     default=10,
+    type=int,
+    metavar="N",
+    help="print frequency (default: 10)",
+)
+parser.add_argument(
+    "--save-log-freq",
+    default=200,
     type=int,
     metavar="N",
     help="print frequency (default: 10)",
@@ -351,6 +358,7 @@ def main_worker(gpu, ngpus_per_node, args):
     train_log.add_metrics(
         batch_time=AverageMetric(),
         data_time=AverageMetric(),
+        fps=FPSMetric(),
         losses=AverageMetric(),
         top1=AverageMetric(),
         top5=AverageMetric(),
@@ -391,19 +399,18 @@ def main_worker(gpu, ngpus_per_node, args):
 def train(train_loader, model, criterion, optimizer, epoch, log, args):
     print(f"MAIN: epoch={epoch} begins...")
 
-    header = "Train sec/batch (avg)\tData Load sec/batch (avg)\t"
-    
+    header = "Batch cnt.\tTrain sec/batch (avg)\tData Load sec/batch (avg)\t"
+
     # switch to train mode
     model.train()
 
     log.reset()
-    end_data = time.time()
-    end_train = time.time()
+    end = time.time()
     print(f"\n{header}\n{'-'*len(header)}")
 
     for i, (input, target) in enumerate(train_loader):
         # measure data loading time
-        log.update(data_time=(time.time() - end_data))
+        log.update(data_time=(time.time() - end))
 
         if args.gpu is not None:
             input = input.cuda(args.gpu, non_blocking=True)
@@ -428,17 +435,20 @@ def train(train_loader, model, criterion, optimizer, epoch, log, args):
         optimizer.step()
 
         # measure elapsed time
-        log.update(batch_time=(time.time() - end_train))
-        end_train = time.time()
+        log.update(
+            batch_time=(time.time() - end),
+            fps=(input.size(0), time.time() - end),
+        )
 
-        if i % args.print_freq == 0 and i != 0:
+        if i % args.print_freq == 0:
             # stdout stats
             log.log(cb=stdout_cb)
-        else:
-            # save stats
-            log.log()
+            # save to disk
+        if i % args.save_log_freq == 0:
+            log.save()
 
-        end_data = time.time()
+        end = time.time()
+    log.save()
 
 
 def validate(val_loader, model, criterion, args):
@@ -529,16 +539,17 @@ def accuracy(output, target, topk=(1,)):
 
 def stdout_cb(metrics):
     print(
+        "Batch [{batch_time.count:6d}]\t"
         "Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
         "Data {data_time.val:.3f} ({data_time.avg:.3f})\t"
+        "FPS {fps.val:.3f} ({fps.avg:.3f})\t"
         "Loss {loss.val:.4f} ({loss.avg:.4f})\t"
-        "Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t"
-        "Acc@5 {top5.val:.3f} ({top5.avg:.3f})".format(
+        "Acc@1 {top1.val:.3f} ({top1.avg:.3f})".format(
             batch_time=metrics["batch_time"],
             data_time=metrics["data_time"],
+            fps=metrics["fps"],
             loss=metrics["losses"],
             top1=metrics["top1"],
-            top5=metrics["top5"],
         )
     )
 
