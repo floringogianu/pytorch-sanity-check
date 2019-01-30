@@ -6,6 +6,7 @@ import os
 import random
 import shutil
 import time
+import datetime
 import warnings
 import sys
 
@@ -344,7 +345,9 @@ def main_worker(gpu, ngpus_per_node, args):
         return
 
     # configure logger
-    train_log = Logger(label="exp", path="./results/")
+    exp_name = f"{datetime.datetime.now():%Y%b%d-%H%M%S}_inat"
+
+    train_log = Logger(label="train", path=f"./results/{exp_name}")
     train_log.add_metrics(
         batch_time=AverageMetric(),
         data_time=AverageMetric(),
@@ -388,20 +391,19 @@ def main_worker(gpu, ngpus_per_node, args):
 def train(train_loader, model, criterion, optimizer, epoch, log, args):
     print(f"MAIN: epoch={epoch} begins...")
 
-    header = (
-        "Epoch. Left batches\tTrain sec/batch (avg)\t"
-        + "Data Load sec/batch (avg)\t"
-    )
+    header = "Train sec/batch (avg)\tData Load sec/batch (avg)\t"
+    
     # switch to train mode
     model.train()
 
     log.reset()
-    end = time.time()
+    end_data = time.time()
+    end_train = time.time()
     print(f"\n{header}\n{'-'*len(header)}")
 
     for i, (input, target) in enumerate(train_loader):
         # measure data loading time
-        log.update(data_time=(time.time() - end))
+        log.update(data_time=(time.time() - end_data))
 
         if args.gpu is not None:
             input = input.cuda(args.gpu, non_blocking=True)
@@ -420,34 +422,23 @@ def train(train_loader, model, criterion, optimizer, epoch, log, args):
             top5=(acc5[0], input.size(0)),
         )
 
-
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         # measure elapsed time
-        log.update(batch_time=(time.time() - end))
-        end = time.time()
+        log.update(batch_time=(time.time() - end_train))
+        end_train = time.time()
 
-        if i % args.print_freq == 0:
-            print(
-                "Epoch: [{0}][{1}/{2}]\t"
-                "Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
-                "Data {data_time.val:.3f} ({data_time.avg:.3f})\t"
-                "Loss {loss.val:.4f} ({loss.avg:.4f})\t"
-                "Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t"
-                "Acc@5 {top5.val:.3f} ({top5.avg:.3f})".format(
-                    epoch,
-                    i,
-                    len(train_loader),
-                    batch_time=log.metrics["batch_time"],
-                    data_time=log.metrics["data_time"],
-                    loss=log.metrics["losses"],
-                    top1=log.metrics["top1"],
-                    top5=log.metrics["top5"],
-                )
-            )
+        if i % args.print_freq == 0 and i != 0:
+            # stdout stats
+            log.log(cb=stdout_cb)
+        else:
+            # save stats
+            log.log()
+
+        end_data = time.time()
 
 
 def validate(val_loader, model, criterion, args):
@@ -534,6 +525,22 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
+
+def stdout_cb(metrics):
+    print(
+        "Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t"
+        "Data {data_time.val:.3f} ({data_time.avg:.3f})\t"
+        "Loss {loss.val:.4f} ({loss.avg:.4f})\t"
+        "Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t"
+        "Acc@5 {top5.val:.3f} ({top5.avg:.3f})".format(
+            batch_time=metrics["batch_time"],
+            data_time=metrics["data_time"],
+            loss=metrics["losses"],
+            top1=metrics["top1"],
+            top5=metrics["top5"],
+        )
+    )
 
 
 if __name__ == "__main__":

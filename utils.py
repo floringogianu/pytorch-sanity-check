@@ -24,7 +24,7 @@ class AverageMetric:
 
 
 class Logger:
-    def __init__(self, label="log", path=None):
+    def __init__(self, label="train", path=None):
         self.label = label
         self.metrics = {}
 
@@ -57,8 +57,14 @@ class Logger:
     def reset(self):
         for _, metric in self.metrics.items():
             metric.reset()
-    
-    def save(self):
+        
+    def log(self, cb=None):
+        if cb:
+            cb(self.metrics)
+        
+        self._save()
+
+    def _save(self):
         filename = '%s.pkl' % self.label.replace(" ", "_").lower()
         path = os.path.join(self.path, filename)
 
@@ -71,7 +77,8 @@ class Logger:
         for metric_name, metric in self.metrics.items():
             history[metric_name].append({
                 "step_idx": metric.count,
-                "value": metric.value
+                "value": metric.val
             })
-
-
+        
+        with open(path, "wb") as f:
+            pickle.dump(history, f)
